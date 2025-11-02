@@ -1,5 +1,6 @@
  import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
+import { useNavigate } from "react-router-dom";
 
 export default function TeacherDashboard() {
   const [title, setTitle] = useState("");
@@ -8,7 +9,18 @@ export default function TeacherDashboard() {
   const [testLink, setTestLink] = useState("");
   const [joinedStudents, setJoinedStudents] = useState([]);
 
-  // 🔹 Restore data from localStorage on load
+  const navigate = useNavigate();
+
+  // ✅ Check login session on mount
+  useEffect(() => {
+    const checkLogin = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) navigate("/teacher-auth");
+    };
+    checkLogin();
+  }, [navigate]);
+
+  // ✅ Restore dashboard data on load
   useEffect(() => {
     const saved = JSON.parse(localStorage.getItem("teacherDashboard"));
     if (saved) {
@@ -19,7 +31,7 @@ export default function TeacherDashboard() {
     }
   }, []);
 
-  // 🔹 Save to localStorage whenever data changes
+  // ✅ Auto-save dashboard data to localStorage
   useEffect(() => {
     localStorage.setItem(
       "teacherDashboard",
@@ -27,7 +39,7 @@ export default function TeacherDashboard() {
     );
   }, [title, questions, testId, testLink]);
 
-  // 🔹 Fetch joined students from Supabase
+  // ✅ Fetch joined students from Supabase
   useEffect(() => {
     if (!testId) return;
 
@@ -158,11 +170,25 @@ export default function TeacherDashboard() {
     }
   };
 
+  // 🚪 Logout
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    localStorage.removeItem("teacherDashboard");
+    alert("Logged out successfully!");
+    navigate("/teacher-auth");
+  };
+
   return (
     <div className="p-8 max-w-4xl mx-auto">
-      <h1 className="text-3xl font-bold mb-6 text-center text-blue-700">
-        👩‍🏫 Teacher Dashboard
-      </h1>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold text-blue-700">👩‍🏫 Teacher Dashboard</h1>
+        <button
+          onClick={handleLogout}
+          className="bg-red-600 text-white px-4 py-2 rounded"
+        >
+          🚪 Logout
+        </button>
+      </div>
 
       {/* ---------------- CREATE TEST ---------------- */}
       <div className="border p-4 rounded-lg shadow-sm mb-6 bg-white">
@@ -241,7 +267,7 @@ export default function TeacherDashboard() {
         {testLink && (
           <button
             onClick={resetTest}
-            className="bg-red-600 text-white px-4 py-2 rounded"
+            className="bg-gray-600 text-white px-4 py-2 rounded"
           >
             🧹 Reset Test
           </button>
@@ -264,12 +290,12 @@ export default function TeacherDashboard() {
           </a>
 
           <div className="mt-4 flex gap-3">
-            <a
-              href={`/results/${testId}`}
+            <button
+              onClick={() => navigate(`/results/${testId}`)}
               className="bg-purple-600 text-white px-4 py-2 rounded"
             >
               📊 View Results
-            </a>
+            </button>
           </div>
         </div>
       )}

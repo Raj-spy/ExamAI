@@ -1,7 +1,6 @@
  import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
 
 export default function TeacherDashboard() {
   const [title, setTitle] = useState("");
@@ -9,12 +8,12 @@ export default function TeacherDashboard() {
   const [testId, setTestId] = useState("");
   const [testLink, setTestLink] = useState("");
   const [joinedStudents, setJoinedStudents] = useState([]);
-  const [aiTopic, setAiTopic] = useState("");
-  const [aiQuestionCount, setAiQuestionCount] = useState(5);
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [testResults, setTestResults] = useState([]);
+  const [activeTab, setActiveTab] = useState("create");
 
   const navigate = useNavigate();
 
+  // ✅ Check login session
   useEffect(() => {
     const checkLogin = async () => {
       const { data } = await supabase.auth.getSession();
@@ -23,6 +22,7 @@ export default function TeacherDashboard() {
     checkLogin();
   }, [navigate]);
 
+  // ✅ Restore saved data
   useEffect(() => {
     const saved = JSON.parse(localStorage.getItem("teacherDashboard"));
     if (saved) {
@@ -33,6 +33,7 @@ export default function TeacherDashboard() {
     }
   }, []);
 
+  // ✅ Persist data
   useEffect(() => {
     localStorage.setItem(
       "teacherDashboard",
@@ -40,20 +41,28 @@ export default function TeacherDashboard() {
     );
   }, [title, questions, testId, testLink]);
 
+  // ✅ Fetch students & results
   useEffect(() => {
     if (!testId) return;
-    const fetchStudents = async () => {
+
+    async function fetchStudents() {
       const { data, error } = await supabase
         .from("students")
         .select("*")
         .eq("test_id", testId);
+      if (!error && data) setJoinedStudents(data);
+    }
 
-      if (!error && data) {
-        setJoinedStudents(data);
-      }
-    };
+    async function fetchResults() {
+      const { data, error } = await supabase
+        .from("results")
+        .select("*")
+        .eq("test_id", testId);
+      if (!error && data) setTestResults(data);
+    }
 
     fetchStudents();
+    fetchResults();
 
     const channel = supabase
       .channel("students-join")
@@ -71,101 +80,45 @@ export default function TeacherDashboard() {
     return () => supabase.removeChannel(channel);
   }, [testId]);
 
-  // AI Generate Questions calling your backend server endpoint securely
-  const generateQuestionsWithAI = async () => {
-    if (!aiTopic.trim()) {
-      alert("Please enter a topic for AI generation.");
-      return;
-    }
-    setIsGenerating(true);
-    try {
-       const response = await axios.post("http://localhost:5000/api/generate-ai-questions", {
-  topic: aiTopic,
-  count: aiQuestionCount,  // <-- comma here
-});  // <-- semicolon here
-
-const aiText = response.data.choices[0].message.content;  // <-- semicolon here
-const generatedQuestions = parseAiQuestions(aiText);
-setQuestions(generatedQuestions);
-alert("✅ AI-generated questions added!");
-
-    } catch (error) {
-      console.error("Error generating questions:", error);
-      alert("Failed to generate questions. Please try again.");
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  // Parse AI-generated questions from backend response text
-  const parseAiQuestions = (text) => {
-    const lines = text.split("\n");
-    const questions = [];
-    let currentQuestion = null;
-    let options = [];
-    let correctOption = null;
-
-    lines.forEach((line) => {
-      if (line.startsWith("Question:")) {
-        if (currentQuestion) {
-          questions.push({
-            question: currentQuestion,
-            options,
-            correctAnswer: correctOption,
-          });
-        }
-        currentQuestion = line.replace("Question: ", "").trim();
-        options = [];
-        correctOption = null;
-      } else if (line.match(/^[A-D]\)/)) {
-        const isCorrect = line.includes("(Correct)");
-        const option = line.replace("(Correct)", "").trim();
-        options.push(option);
-        if (isCorrect) {
-          correctOption = options.length - 1;
-        }
-      }
-    });
-
-    if (currentQuestion) {
-      questions.push({
-        question: currentQuestion,
-        options,
-        correctAnswer: correctOption,
-      });
-    }
-
-    return questions;
-  };
-
-  // Question editing helpers
+  // ✅ Add question
   const addQuestion = () => {
-    setQuestions([
-      ...questions,
+    setQuestions((prev) => [
+      ...prev,
       { question: "", options: ["", "", "", ""], correctAnswer: null },
     ]);
   };
 
+  // ✅ Update question text or correct answer
   const updateQuestion = (index, key, value) => {
-    const updated = [...questions];
-    updated[index][key] = value;
-    setQuestions(updated);
+    setQuestions((prev) => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [key]: value };
+      return updated;
+    });
   };
 
+  // ✅ Update option
   const updateOption = (qIndex, oIndex, value) => {
-    const updated = [...questions];
-    updated[qIndex].options[oIndex] = value;
-    setQuestions(updated);
+    setQuestions((prev) => {
+      const updated = [...prev];
+      updated[qIndex] = {
+        ...updated[qIndex],
+        options: updated[qIndex].options.map((opt, i) =>
+          i === oIndex ? value : opt
+        ),
+      };
+      return updated;
+    });
   };
 
+  // ✅ Fixed Delete Question (fully functional now)
   const deleteQuestion = (index) => {
-    if (window.confirm("Delete this question?")) {
-      const updated = questions.filter((_, i) => i !== index);
-      setQuestions(updated);
+    if (window.confirm("🗑️ Delete this question?")) {
+      setQuestions((prev) => prev.filter((_, i) => i !== index));
     }
   };
 
-  // Validation before creating test
+  // ✅ Validate before creating test
   const validateTest = () => {
     if (!title.trim()) {
       alert("Please enter a test title!");
@@ -175,30 +128,30 @@ alert("✅ AI-generated questions added!");
       alert("Add at least one question before creating a test!");
       return false;
     }
-    for (let i = 0; i < questions.length; i++) {
-      const q = questions[i];
+    for (let q of questions) {
       if (!q.question.trim()) {
-        alert(`Question ${i + 1} is blank!`);
+        alert("Some question is blank!");
         return false;
       }
-      for (let j = 0; j < q.options.length; j++) {
-        if (!q.options[j].trim()) {
-          alert(`Option ${j + 1} in Question ${i + 1} is blank!`);
-          return false;
-        }
+      if (q.options.some((opt) => !opt.trim())) {
+        alert("Some option is blank!");
+        return false;
       }
       if (q.correctAnswer === null) {
-        alert(`Please select a correct answer for Question ${i + 1}!`);
+        alert("Please select correct answer for all questions!");
         return false;
       }
     }
     return true;
   };
 
-  // Create test in Supabase
+  // ✅ Create Test
   const createTest = async () => {
     if (!validateTest()) return;
-    const { data, error } = await supabase.from("tests").insert([{ title, questions }]).select();
+    const { data, error } = await supabase
+      .from("tests")
+      .insert([{ title, questions }])
+      .select();
     if (error) {
       alert("Failed to create test. Try again.");
       return;
@@ -207,22 +160,25 @@ alert("✅ AI-generated questions added!");
     setTestId(id);
     setTestLink(`${window.location.origin}/student/${id}`);
     alert("✅ Test created successfully!");
+    setActiveTab("students");
   };
 
-  // Reset everything
+  // ✅ Reset Test
   const resetTest = () => {
-    if (window.confirm("Are you sure you want to reset and start a new test?")) {
+    if (window.confirm("Reset and start a new test?")) {
       localStorage.removeItem("teacherDashboard");
       setTitle("");
       setQuestions([]);
       setTestId("");
       setTestLink("");
       setJoinedStudents([]);
+      setTestResults([]);
       alert("🧹 Test reset successfully!");
+      setActiveTab("create");
     }
   };
 
-  // Logout
+  // ✅ Logout
   const handleLogout = async () => {
     await supabase.auth.signOut();
     localStorage.removeItem("teacherDashboard");
@@ -230,57 +186,65 @@ alert("✅ AI-generated questions added!");
     navigate("/teacher-auth");
   };
 
+  // ✅ Analytics Helper
+  const getAverageScoresPerTopic = () => {
+    const topicSums = {};
+    const topicCounts = {};
+    testResults.forEach(({ topic_scores }) => {
+      if (!topic_scores) return;
+      Object.entries(topic_scores).forEach(([topic, score]) => {
+        topicSums[topic] = (topicSums[topic] || 0) + score;
+        topicCounts[topic] = (topicCounts[topic] || 0) + 1;
+      });
+    });
+    return Object.entries(topicSums).map(([topic, sum]) => ({
+      topic,
+      average: ((sum / topicCounts[topic]) * 100).toFixed(1),
+    }));
+  };
+
+  // ✅ UI Render
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-white py-12">
-      <div className="max-w-4xl mx-auto px-4 md:px-0">
-        {/* Header */}
+      <div className="max-w-6xl mx-auto px-4 md:px-0">
         <div className="flex justify-between items-center mb-12">
-          <h1 className="text-3xl md:text-4xl font-extrabold text-blue-700 tracking-tight">👩‍🏫 Teacher Dashboard</h1>
+          <h1 className="text-3xl md:text-4xl font-extrabold text-blue-700">
+            👩‍🏫 Teacher Dashboard
+          </h1>
           <button
             onClick={handleLogout}
-            className="bg-red-500 hover:bg-red-600 text-white px-5 py-2 rounded-lg shadow-lg transition-all duration-150"
+            className="bg-red-500 hover:bg-red-600 text-white px-5 py-2 rounded-lg shadow"
           >
             🚪 Logout
           </button>
         </div>
 
-        {/* AI Test Generator */}
-        <section className="bg-white border border-blue-100 rounded-2xl shadow-lg p-8 mb-10">
-          <h2 className="text-xl font-semibold text-gray-900 mb-6 border-b pb-3">🤖 AI Test Generator</h2>
-          <div className="mb-6">
-            <label className="block mb-2 text-gray-700 font-medium">Topic</label>
-            <input
-              type="text"
-              value={aiTopic}
-              onChange={(e) => setAiTopic(e.target.value)}
-              className="border border-gray-300 p-3 w-full rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Enter topic for AI test generation..."
-            />
-          </div>
-          <div className="mb-6">
-            <label className="block mb-2 text-gray-700 font-medium">Number of Questions</label>
-            <input
-              type="number"
-              value={aiQuestionCount}
-              onChange={(e) => setAiQuestionCount(e.target.value)}
-              min="1"
-              max="20"
-              className="border border-gray-300 p-3 w-full rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <button
-            onClick={generateQuestionsWithAI}
-            disabled={isGenerating}
-            className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-lg shadow transition-all duration-200"
-          >
-            {isGenerating ? "Generating..." : "Generate Test with AI"}
-          </button>
-        </section>
+        {/* Tabs */}
+        <nav className="flex space-x-6 border-b border-gray-300 mb-8">
+          {[
+            { key: "create", label: "Create Test" },
+            { key: "students", label: `Students Joined (${joinedStudents.length})` },
+            { key: "analytics", label: "Analytics" },
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              className={`pb-2 font-semibold ${
+                activeTab === tab.key
+                  ? "border-b-4 border-blue-600 text-blue-700"
+                  : "text-gray-500"
+              }`}
+              onClick={() => setActiveTab(tab.key)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </nav>
 
-        {/* Test Creator */}
-        <section className="bg-white border border-blue-100 rounded-2xl shadow-lg p-8 mb-10">
-          <h2 className="text-xl font-semibold text-gray-900 mb-6 border-b pb-3">🧾 Create New Test</h2>
-          <div className="mb-8">
+        {/* Create Test Section */}
+        {activeTab === "create" && (
+          <section className="bg-white border border-blue-100 rounded-2xl shadow-lg p-8 mb-10">
+            <h2 className="text-xl font-semibold mb-6 border-b pb-3">🧾 Create New Test</h2>
+
             <label className="block mb-2 text-gray-700 font-medium">Test Title</label>
             <input
               type="text"
@@ -289,106 +253,192 @@ alert("✅ AI-generated questions added!");
               className="border border-gray-300 p-3 w-full rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Enter test title..."
             />
-          </div>
 
-          {questions.map((q, qIndex) => (
-            <article key={qIndex} className="bg-gray-50 border border-gray-200 rounded-xl p-6 mb-6 shadow">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="font-bold text-gray-800">Question {qIndex + 1}</h3>
-                <button
-                  onClick={() => deleteQuestion(qIndex)}
-                  className="text-red-500 hover:text-red-700 text-base font-medium"
-                >
-                  ❌ Delete
-                </button>
-              </div>
-              <input
-                type="text"
-                value={q.question}
-                onChange={(e) => updateQuestion(qIndex, "question", e.target.value)}
-                className="border border-gray-300 p-3 w-full rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                placeholder="Enter question..."
-              />
-              <div className="grid md:grid-cols-2 gap-4 mb-2">
-                {q.options.map((opt, oIndex) => (
-                  <label key={oIndex} className="flex items-center bg-white border border-gray-200 rounded-lg p-3 gap-2 hover:bg-blue-50 transition">
-                    <input
-                      type="radio"
-                      name={`correct-${qIndex}`}
-                      checked={q.correctAnswer === oIndex}
-                      onChange={() => updateQuestion(qIndex, "correctAnswer", oIndex)}
-                      className="accent-blue-600"
-                    />
-                    <input
-                      type="text"
-                      value={opt}
-                      onChange={(e) => updateOption(qIndex, oIndex, e.target.value)}
-                      className="w-full bg-transparent outline-none text-gray-700 text-base"
-                      placeholder={`Option ${oIndex + 1}`}
-                    />
-                  </label>
-                ))}
-              </div>
-            </article>
-          ))}
-
-          <div className="flex flex-wrap gap-3 mt-6">
-            <button
-              onClick={addQuestion}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg shadow transition-all duration-200"
-            >
-              ➕ Add Question
-            </button>
-            <button
-              onClick={createTest}
-              className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg shadow transition-all duration-200"
-            >
-              🚀 Create Test
-            </button>
-            {testLink && (
-              <button
-                onClick={resetTest}
-                className="bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg transition-all duration-200 shadow"
+            {questions.map((q, idx) => (
+              <article
+                key={idx}
+                className="bg-gray-50 border border-gray-200 rounded-xl p-6 mb-6 shadow"
               >
-                🧹 Reset Test
-              </button>
-            )}
-          </div>
-        </section>
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="font-bold text-gray-800">Question {idx + 1}</h3>
+                  <button
+                    type="button"
+                    onClick={() => deleteQuestion(idx)}
+                    className="text-red-500 hover:text-red-700 font-medium"
+                  >
+                    ❌ Delete
+                  </button>
+                </div>
 
-        {testLink && (
-          <section className="bg-green-50 border border-green-200 rounded-xl p-7 mb-10 shadow">
-            <div className="flex flex-col md:flex-row md:justify-between md:items-center">
-              <div>
-                <p className="font-semibold text-green-700 mb-2">✅ Test Created!</p>
+                <input
+                  type="text"
+                  value={q.question}
+                  onChange={(e) =>
+                    updateQuestion(idx, "question", e.target.value)
+                  }
+                  className="border border-gray-300 p-3 w-full rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  placeholder="Enter question..."
+                />
+
+                <div className="grid md:grid-cols-2 gap-4 mb-2">
+                  {q.options.map((opt, i) => (
+                    <label
+                      key={i}
+                      className="flex items-center bg-white border border-gray-200 rounded-lg p-3 gap-2 hover:bg-blue-50 transition"
+                    >
+                      <input
+                        type="radio"
+                        name={`correct-${idx}`}
+                        checked={q.correctAnswer === i}
+                        onChange={() =>
+                          updateQuestion(idx, "correctAnswer", i)
+                        }
+                        className="accent-blue-600"
+                      />
+                      <input
+                        type="text"
+                        value={opt}
+                        onChange={(e) =>
+                          updateOption(idx, i, e.target.value)
+                        }
+                        className="w-full bg-transparent outline-none text-gray-700"
+                        placeholder={`Option ${i + 1}`}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </article>
+            ))}
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={addQuestion}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg shadow transition"
+              >
+                ➕ Add Question
+              </button>
+              <button
+                onClick={createTest}
+                className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg shadow transition"
+              >
+                🚀 Create Test
+              </button>
+              {testLink && (
+                <button
+                  onClick={resetTest}
+                  className="bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg shadow transition"
+                >
+                  🧹 Reset Test
+                </button>
+              )}
+            </div>
+
+            {testLink && (
+              <section className="bg-green-50 border border-green-200 rounded-xl p-6 mt-6 shadow">
+                <p className="font-semibold text-green-700 mb-2">
+                  ✅ Test Created!
+                </p>
                 <p className="text-gray-700 mb-2">Share this test link:</p>
-                <a href={testLink} target="_blank" rel="noreferrer" className="text-blue-600 underline break-all font-medium">
+                <a
+                  href={testLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-blue-600 underline break-words"
+                >
                   {testLink}
                 </a>
-              </div>
-              <div className="mt-4 md:mt-0">
-                <button
-                  onClick={() => navigate(`/results/${testId}`)}
-                  className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-lg shadow transition-all duration-200"
-                >
-                  📊 View Results
-                </button>
-              </div>
-            </div>
+                <div className="mt-4">
+                  <button
+                    onClick={() => navigate(`/results/${testId}`)}
+                    className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-lg shadow transition"
+                  >
+                    📊 View Results
+                  </button>
+                </div>
+              </section>
+            )}
           </section>
         )}
 
-        {joinedStudents.length > 0 && (
+        {/* Students Tab */}
+        {activeTab === "students" && (
           <section className="bg-blue-50 border border-blue-200 rounded-xl p-7 shadow">
-            <h2 className="text-lg font-bold text-gray-800 mb-4">👩‍🎓 Students Joined ({joinedStudents.length})</h2>
+            <h2 className="text-lg font-bold text-gray-800 mb-4">
+              👩‍🎓 Students Joined ({joinedStudents.length})
+            </h2>
             <ul className="divide-y divide-gray-200">
-              {joinedStudents.map((s) => (
-                <li key={s.id} className="py-2 text-gray-700 flex justify-between items-center">
-                  <span>{s.student_name || "Unnamed Student"}</span>
-                  <span className="text-gray-500 text-sm">• ID: {s.id}</span>
+              {joinedStudents.map(({ id, student_name }) => (
+                <li
+                  key={id}
+                  className="py-2 text-gray-700 flex justify-between items-center"
+                >
+                  <span>{student_name || "Unnamed Student"}</span>
+                  <span className="text-gray-500 text-sm">• ID: {id}</span>
                 </li>
               ))}
             </ul>
+          </section>
+        )}
+
+        {/* Analytics Tab */}
+        {activeTab === "analytics" && (
+          <section className="bg-white border border-gray-300 rounded-2xl shadow p-8">
+            <h2 className="text-xl font-semibold mb-6 border-b pb-3">
+              📊 Detailed Analytics
+            </h2>
+
+            <div>
+              <h3 className="font-semibold text-gray-800 mb-3">
+                Average Score Per Student
+              </h3>
+              {testResults.length === 0 && (
+                <p className="text-gray-600">No results available.</p>
+              )}
+              {testResults.map(({ student_name, score, total }, idx) => {
+                const percent = total ? ((score / total) * 100).toFixed(1) : 0;
+                return (
+                  <div key={idx} className="mb-4">
+                    <p className="text-gray-700 font-medium">{student_name}</p>
+                    <div className="w-full bg-gray-200 rounded h-4">
+                      <div
+                        className="bg-blue-600 h-4 rounded"
+                        style={{ width: `${percent}%` }}
+                      />
+                    </div>
+                    <p className="text-sm text-gray-600">
+                      {percent}% ({score}/{total})
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="mt-8">
+              <h3 className="font-semibold text-gray-800 mb-3">
+                Average Score Per Topic
+              </h3>
+              {(() => {
+                const topics = getAverageScoresPerTopic();
+                if (topics.length === 0)
+                  return <p className="text-gray-600">No topic data available.</p>;
+                return topics.map(({ topic, average }, idx) => (
+                  <div key={idx} className="mb-4">
+                    <p className="text-gray-700 font-medium capitalize">
+                      {topic}
+                    </p>
+                    <div className="w-full bg-gray-200 rounded h-4">
+                      <div
+                        className="bg-green-600 h-4 rounded"
+                        style={{ width: `${average}%` }}
+                      />
+                    </div>
+                    <p className="text-sm text-gray-600">
+                      {average}% average score
+                    </p>
+                  </div>
+                ));
+              })()}
+            </div>
           </section>
         )}
       </div>

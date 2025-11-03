@@ -16,7 +16,7 @@ export default function StudentTest() {
   const studentNameRef = useRef("");
   studentNameRef.current = studentName;
 
-  // FETCH TEST DETAILS
+  // Fetch test details on mount
   useEffect(() => {
     const fetchTest = async () => {
       try {
@@ -25,18 +25,14 @@ export default function StudentTest() {
           .select("*")
           .eq("id", testId)
           .single();
-
         if (error || !data) {
           console.error("❌ Test fetch error:", error);
           alert("Test not found or expired.");
           return;
         }
-
-        // Parse JSON if stored as string
         const questions = Array.isArray(data.questions)
           ? data.questions
           : JSON.parse(data.questions || "[]");
-
         setTest({ ...data, questions });
         setAnswers(new Array(questions.length).fill(null));
       } catch (err) {
@@ -44,52 +40,41 @@ export default function StudentTest() {
         alert("Test not found or expired.");
       }
     };
-
     fetchTest();
   }, [testId]);
 
-  // JOIN TEST
-   // JOIN TEST
-const joinTest = async () => {
-  if (!studentName.trim()) return alert("Please enter your name first!");
+  // Join test and add student record
+  const joinTest = async () => {
+    if (!studentName.trim()) return alert("Please enter your name first!");
 
-  try {
-    // 1️⃣ Add student record
-    const { data, error } = await supabase
-      .from("students")
-      .insert([{ student_name: studentName, test_id: testId, current_test_id: testId }]) // added current_test_id
-      .select();
+    try {
+      const { data, error } = await supabase
+        .from("students")
+        .insert([{ student_name: studentName, test_id: testId, current_test_id: testId }])
+        .select();
 
-    if (error) {
-      console.error("Join test error:", error);
-      alert("Could not join test. Please try again.");
-      return;
+      if (error) {
+        console.error("Join test error:", error);
+        alert("Could not join test. Please try again.");
+        return;
+      }
+
+      setStudentId(data[0].id);
+      localStorage.setItem("student_id", data[0].id);
+      localStorage.setItem("student_name", studentName);
+      localStorage.setItem("test_id", testId);
+
+      await supabase.from("students").update({ current_test_id: testId }).eq("id", data[0].id);
+
+      setJoined(true);
+      alert("✅ Joined test successfully!");
+    } catch (err) {
+      console.error("Unexpected error while joining test:", err);
+      alert("Something went wrong while joining the test.");
     }
+  };
 
-    console.log("Student joined:", data);
-
-    // 2️⃣ Store info locally
-    setStudentId(data[0].id);
-    localStorage.setItem("student_id", data[0].id);
-    localStorage.setItem("student_name", studentName);
-    localStorage.setItem("test_id", testId);
-
-    // 3️⃣ Realtime visible to teacher
-    await supabase
-      .from("students")
-      .update({ current_test_id: testId })
-      .eq("id", data[0].id);
-
-    setJoined(true);
-    alert("✅ Joined test successfully!");
-  } catch (err) {
-    console.error("Unexpected error while joining test:", err);
-    alert("Something went wrong while joining the test.");
-  }
-};
-
-
-  // FLAGGING BEHAVIOUR
+  // Flagging suspicious behavior
   const sendFlag = async (reason) => {
     try {
       await supabase.from("flags").insert([
@@ -106,7 +91,7 @@ const joinTest = async () => {
     }
   };
 
-  // MONITORING LOGIC
+  // Monitoring tab switch or refresh
   useEffect(() => {
     if (!joined) return;
 
@@ -127,18 +112,17 @@ const joinTest = async () => {
     };
   }, [joined]);
 
-  // HANDLE ANSWERS
+  // Handle answer selection
   const handleAnswer = (index, value) => {
     const copy = [...answers];
     copy[index] = value;
     setAnswers(copy);
   };
 
-  // SUBMIT TEST
+  // Submit test answers, calculate score, save in DB
   const submitTest = async () => {
     if (!joined) return alert("Please start the test first!");
-    if (answers.includes(null) && !window.confirm("Some questions are unanswered. Submit anyway?"))
-      return;
+    if (answers.includes(null) && !window.confirm("Some questions are unanswered. Submit anyway?")) return;
 
     try {
       const correctCount = test.questions.filter(
@@ -156,7 +140,11 @@ const joinTest = async () => {
         },
       ]);
 
-      if (error) throw error;
+      if (error) {
+        console.error("Error inserting result:", error);
+        alert("Error submitting test.");
+        return;
+      }
 
       setScore(correctCount);
       setSubmitted(true);
@@ -166,7 +154,6 @@ const joinTest = async () => {
     }
   };
 
-  // RENDER
   if (!test) return <p className="p-8">Loading test...</p>;
 
   if (!joined) {
@@ -181,10 +168,7 @@ const joinTest = async () => {
           className="border p-2 w-full mb-4 rounded"
           placeholder="Your full name"
         />
-        <button
-          onClick={joinTest}
-          className="bg-blue-600 text-white px-4 py-2 rounded"
-        >
+        <button onClick={joinTest} className="bg-blue-600 text-white px-4 py-2 rounded">
           ✅ Start Test
         </button>
       </div>
@@ -200,9 +184,7 @@ const joinTest = async () => {
 
       {test.questions.map((q, idx) => (
         <div key={idx} className="border p-4 mb-4 rounded">
-          <p className="font-medium mb-2">
-            {idx + 1}. {q.question}
-          </p>
+          <p className="font-medium mb-2">{idx + 1}. {q.question}</p>
           {q.options.map((opt, i) => (
             <label key={i} className="block cursor-pointer mb-1">
               <input
@@ -219,20 +201,14 @@ const joinTest = async () => {
       ))}
 
       {!submitted ? (
-        <button
-          onClick={submitTest}
-          className="bg-green-600 text-white px-4 py-2 rounded"
-        >
+        <button onClick={submitTest} className="bg-green-600 text-white px-4 py-2 rounded">
           🚀 Submit Test
         </button>
       ) : (
         <div className="mt-6 p-4 bg-blue-50 border rounded">
           <h2 className="text-lg font-semibold">✅ Test Submitted</h2>
           <p>
-            Your Score:{" "}
-            <strong>
-              {score} / {test.questions.length}
-            </strong>
+            Your Score: <strong>{score} / {test.questions.length}</strong>
           </p>
         </div>
       )}

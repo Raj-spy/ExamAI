@@ -120,39 +120,48 @@ export default function StudentTest() {
   };
 
   // Submit test answers, calculate score, save in DB
-  const submitTest = async () => {
-    if (!joined) return alert("Please start the test first!");
-    if (answers.includes(null) && !window.confirm("Some questions are unanswered. Submit anyway?")) return;
+    const submitTest = async () => {
+  if (!joined) return alert("Please start the test first!");
+  if (answers.includes(null) && !window.confirm("Some questions are unanswered. Submit anyway?")) return;
 
-    try {
-      const correctCount = test.questions.filter(
-        (q, i) => q.correctAnswer === answers[i]
-      ).length;
+  try {
+    const correctCount = test.questions.filter(
+      (q, i) => q.correctAnswer === answers[i]
+    ).length;
 
-      const currStudentId = studentId || localStorage.getItem("student_id");
+    const currStudentId = studentId || localStorage.getItem("student_id");
 
-      const { error } = await supabase.from("results").insert([
+    // Insert summary in 'results' as before
+    await supabase.from("results").insert([
+      {
+        student_id: currStudentId,
+        test_id: testId,
+        score: correctCount,
+        total: test.questions.length,
+      },
+    ]);
+
+    // Insert each question response in 'question_responses'
+    for (let i = 0; i < test.questions.length; i++) {
+      await supabase.from("question_responses").insert([
         {
           student_id: currStudentId,
           test_id: testId,
-          score: correctCount,
-          total: test.questions.length,
+          question_index: i,
+          selected_option: answers[i],
+          is_correct: test.questions[i].correctAnswer === answers[i],
         },
       ]);
-
-      if (error) {
-        console.error("Error inserting result:", error);
-        alert("Error submitting test.");
-        return;
-      }
-
-      setScore(correctCount);
-      setSubmitted(true);
-    } catch (err) {
-      console.error("Error submitting test:", err);
-      alert("Error submitting test.");
     }
-  };
+
+    setScore(correctCount);
+    setSubmitted(true);
+  } catch (err) {
+    console.error("Error submitting test:", err);
+    alert("Error submitting test.");
+  }
+};
+
 
   if (!test) return <p className="p-8">Loading test...</p>;
 

@@ -33,6 +33,33 @@ export default function TeacherDashboard() {
     }
   }, []);
 
+  // lll
+  // Add inside useEffect in TeacherDashboard
+const [questionStats, setQuestionStats] = useState({});
+
+useEffect(() => {
+  if (!testId) return;
+
+  const fetchQuestionStats = async () => {
+    const { data, error } = await supabase
+      .from("question_responses")
+      .select("question_index, is_correct")
+      .eq("test_id", testId);
+
+    if (error) return;
+    // Aggregate stats
+    const stats = {};
+    data.forEach(({ question_index, is_correct }) => {
+      if (!stats[question_index]) stats[question_index] = { total: 0, wrong: 0 };
+      stats[question_index].total += 1;
+      if (!is_correct) stats[question_index].wrong += 1;
+    });
+    setQuestionStats(stats);
+  };
+  fetchQuestionStats();
+}, [testId]);
+
+
   // ✅ Persist data
   useEffect(() => {
     localStorage.setItem(
@@ -381,6 +408,22 @@ export default function TeacherDashboard() {
         )}
 
         {/* Analytics Tab */}
+        {/* In Analytics Tab */}
+<div className="mt-8">
+  <h3 className="font-semibold text-gray-800 mb-3">Per-Question Weaknesses</h3>
+  {questions.map((q, idx) => {
+    const stats = questionStats[idx] || { total: 0, wrong: 0 };
+    const percentWrong = stats.total > 0 ? ((stats.wrong / stats.total) * 100).toFixed(1) : 0;
+    return (
+      <div key={idx} className="mb-3">
+        <span className="font-semibold">Q{idx + 1}: {q.question}</span>
+        <span className="ml-3 text-red-700 font-bold">{percentWrong}% students wrong</span>
+        {percentWrong > 50 && <span className="ml-2 text-yellow-600 font-semibold">← Weakness!</span>}
+      </div>
+    );
+  })}
+</div>
+
         {activeTab === "analytics" && (
           <section className="bg-white border border-gray-300 rounded-2xl shadow p-8">
             <h2 className="text-xl font-semibold mb-6 border-b pb-3">
@@ -443,5 +486,6 @@ export default function TeacherDashboard() {
         )}
       </div>
     </div>
+    
   );
 }
